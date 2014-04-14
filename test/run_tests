@@ -1,0 +1,21 @@
+#!/usr/bin/env escript
+
+main(Suites) ->
+	ok = code:add_pathsz(["../ebin", "ebin"]),
+	case [list_to_atom(S) || S <- Suites] of
+		[] ->
+			io:format(
+				"No test suites specified!~n"
+				"usage: ./run_tests [TestSuite ...]~n");
+		Mods ->
+			ok = run_tests(Mods)
+	end.
+
+run_tests([Mod | Rest]) ->
+	io:format("Running test module: ~p~n", [Mod]),
+	ok = Mod:test(),
+	io:format("OK~n"),
+	run_tests(Rest);
+run_tests([]) ->
+	ok.
+

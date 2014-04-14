@@ -1,0 +1,15 @@
+{application, wql_parser,
+	[{description, "Web query language parser"},
+	 {vsn, "0.1.0"},
+	 {modules, [
+	 	wql_parser,
+	 	wql_parser_core,
+		wql_scanner,
+		wql_scan_util,
+		wql_pre_scan_filters,
+		wql_post_scan_filters
+		]},
+	 {registered, []},
+	 {applications, [kernel, stdlib]}
+	]}.
+

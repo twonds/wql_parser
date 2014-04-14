@@ -1,0 +1,365 @@
+
+@doc
+<h2>Introduction</h2>
+
+The purpose of this application is to offer a query language facility
+that is safe enough to be exposed on a public website. We're going
+to assume here that you're using 
+<a target="_top"
+   href="http://lucene.apache.org/java/docs/index.html">
+	Apache Lucene
+</a>, or software based on it like 
+<a target="_top"
+   href="http://lucene.apache.org/solr/">Solr</a>, as your
+search engine. The parser in this package might be 
+useful in conjunction with other query engines, but we won't 
+explore that here.
+
+The {@link wql_parser} module was written as a safe, soft-landing 
+parser. Put simply, the parser never says "sorry I can't parse 
+your query", it just creates some sort of query from the input. Also,
+it should do a fair job of sanitizing most queries that are thrown
+at it on the web - creating safe versions that Lucene/Solr can 
+consume.
+
+<h2>Version</h2>
+
+{@version}
+
+
+<h2>Dependencies</h2>
+
+Requires erlang R12B-2 or later.
+
+
+<h2>Download</h2>
+
+The lastest version of wql_parser can be downloaded from: 
+<a target="_top" href="http://www.jinsky.com/code">
+    http://www.jinsky.com/code
+</a>
+
+
+<h2>Basic Usage</h2>
+
+It simple to use:
+<ol>
+	<li>Accept a query string (eg from you website)</li>
+	<li>Parse the string using {@link wql_parser:parse/2} and
+	    get back an abstract syntax tree.</li>
+	<li>Convert the abstract syntax tree to a safe query 
+	    string using {@link wql_parser:to_string/1}.</li>
+	<li>Send the safe query string to solr, or whatever</li>
+</ol>
+
+In code:
+
+<pre>
+	1> AcceptableFields = [director, actor, title].
+	[director,actor,title]
+
+	2> OrigQuery = "berlin director:scott actor:redford".
+	"berlin director:scott actor:redford"
+
+	3> {ok, Ast} = wql_parser:parse(OrigQuery, AcceptableFields).
+	{ok,{'AND',{'AND',"berlin",{{'FIELD',"director"},"scott"}},
+	           {{'FIELD',"actor"},"redford"}}}
+
+	4> SafeQuery = wql_parser:to_string(Ast).
+	&lt;&lt;"((\"berlin\" AND director:\"scott\") AND actor:\"redford\")">>
+
+	5> solr:search(SafeQuery).		%% or whatever
+	...
+</pre>
+
+
+<h2>WQL: The Website Query Language</h2>
+
+This is the what that the {@link wql_parser} parses. It's basically a stripped 
+down version of the
+<a target="_top"
+   href="http://lucene.apache.org/java/2_0_0/queryparsersyntax.html">
+   	Apache Lucene Query Parser Syntax
+</a> with a couple of small, but useful, additions. 
+
+
+<h2>WQL: Example Queries</h2>
+<blockquote>
+	<code>"hong kong" tourist</code>
+
+	<code>quote:"money never sleeps"</code>
+
+	<code>director:scott and actor:denzel</code>
+
+	<code>job_title:developer and skills:(erlang or "functional programming" not vb)</code>
+</blockquote>
+
+
+<h2>WQL: Language Description</h2>
+
+The following is supported:
+<h3>Single Terms:</h3>
+	
+<blockquote>
+	snooker
+	
+	alpine
+</blockquote>
+
+
+<h3>Phrases:</h3> 
+
+<blockquote>
+	"solid state"
+
+	"caper movie"
+</blockquote>
+
+
+<h3>AND, OR and NOT:</h3> 
+
+These operators can be in upper or lower case (unlike in the Lucene 
+syntax where they must be in upper case).
+
+<blockquote>
+	mob or mafia
+
+	not magenta
+	
+	erlang And (embedded OR arm)
+</blockquote>
+
+<strong>NOTE:</strong> In Lucene 'OR' is the default operator, while in 
+WQL 'AND' is the default operator.
+
+So the query:
+
+<blockquote>wallpaper carpet</blockquote>
+
+will assumed to mean "<code>wallpaper AND carpet</code>" in WQL.
+
+
+<h3>Grouping: (...)</h3>
+
+Same as you would expect:
+
+<blockquote>(jakarta or apache) and website</blockquote>
+
+<h3>OR Grouping: (|...)</h3>
+
+This is specifically to help integrate WQL into HTML/XHTML forms. It 
+allows you to change the default operator from AND to OR for a list 
+of terms.
+
+For example:
+
+<blockquote>title:(linux unix) administrator</blockquote>
+
+will be interpreted as:
+	
+<blockquote>title:(linux AND unix) AND administrator</blockquote>
+
+However, using <strong>(|...)</strong> changes the default operator to OR so:
+
+<blockquote>title:(| linux unix) administrator</blockquote>
+
+will be interpreted as:
+	
+<blockquote>title:(linux <strong>OR</strong> unix) AND administrator</blockquote>
+
+Check out the section below on <a href="#web-form-integration">web form integration</a>
+to see how this can be useful in practice.
+
+
+<h3>Fields:</h3>
+
+<blockquote>
+	director:scott
+
+	director:"tony scott"
+
+	director:(tony or ridley)
+</blockquote>
+
+
+<h3>Functionality supported by Lucene Query Syntax, but NOT by WQL:</h3>
+
+<ul>
+	<li>All term modifiers:
+		<ul>
+			<li>Wildcards Searches: ?, *</li>
+			<li>Fuzzy Searches: ~, ~0.8</li>
+			<li>Proximity Searches: ~10</li>
+			<li>Range Searches</li>
+			<li>Boosting a Term: ^4</li>
+		</ul>
+	</li>
+	<li>Plus and minus boolean operators: +, -</li>
+	<li>Escaping Special Characters</li>
+</ul>
+
+
+<a name="web-form-integration"/>
+<h2>WQL: Web Form Integration</h2>
+
+Ok, this isn't going to look amazingly pretty, but it does work. 
+The idea here is to take advantage of the fact that a HTML/XHTML
+form is a <strong>sequence</strong> of input fields. These fields
+are gathered up by the browser and sent to the server in the 
+same order as they appear in the form. This idea of order is 
+important, we can use it to our advantage to weave a query into
+a form by using hidden input fields. To get an idea of what can
+be achieved using the technique described here, take a look 
+at the 
+<a target="_top" href="https://yupp.ie/job/advanced-search-form">
+    advanced search form
+</a> on the 
+<a target="_top" href="https://yupp.ie/">Yupp.ie</a> job site. 
+
+To see how this stuff works, lets walk through some
+examples. Let's start with a basic web search box where we 
+search for ALL of the keywords a user enters:
+
+<pre>
+    &lt;form method="GET" action="http://www.example.com/books"&gt;
+        &lt;label for="k"&gt;Keywords&lt;/label&gt;
+	&lt;input name="s" type="text" id="k"&gt;&lt;/input&gt;
+	&lt;input value="Search" type="submit"/&gt;
+    &lt;/form&gt;
+</pre>
+
+<blockquote>
+    <form method="GET" action="http://www.example.com/books">
+        <label for="k">Keywords</label>
+	<input name="s" type="text" id="k"></input>
+	<input value="Search" type="submit"/>
+    </form>
+</blockquote>
+
+If a user enters "<code>linux unix</code>" into the keywords box,
+the browser will make a GET request at the following URL:
+
+<blockquote>http://www.example.com/books?s=linux+unix</blockquote>
+
+When url-decoded on the server side this is 'linux unix', and the
+wql_parser module will interpret it as 'linux AND unix'.
+
+<hr/>
+
+Okay, so what if you wanted the server to interpret this query 
+as 'linux OR unix'?
+
+Well, by adding two hidden input fields to your form, you can make this 
+work <em>almost</em> out of the box. Here's the form:
+
+<pre>
+    &lt;form method="GET" action="http://www.example.com/books"&gt;
+	<strong>&lt;input name="s" value="(|" type="hidden"/&gt;</strong>
+        &lt;label for="k"&gt;Keywords&lt;/label&gt;
+	&lt;input name="s" type="text" id="k"&gt;&lt;/input&gt;
+	<strong>&lt;input name="s" value=")" type="hidden"/&gt;</strong>
+	&lt;input value="Search" type="submit"/&gt;
+    &lt;/form&gt;
+</pre>
+
+<blockquote>
+    <form method="GET" action="http://www.example.com/books">
+	<input name="s" value="(|" type="hidden"/>
+        <label for="k">Keywords</label>
+	<input name="s" type="text" id="k"></input>
+	<input name="s" value=")" type="hidden"/>
+	<input value="Search" type="submit"/>
+    </form>
+</blockquote>
+
+So we add one input field before the text box containing "(|" and one 
+after the box containing ")". The browser composes the query string 
+"<code>s=(|&amp;s=linux unix&amp;s=)</code>" which will become the 
+following URL when url-encoded:
+
+<blockquote>http://www.example.com/books?s=%28%7C&amp;s=linux+unix&amp;s=%29</blockquote>
+
+<strong>The one thing that you need to do on the server-side, is to ensure that 
+you take all the form variables that use the name "s" (or whatever you named your 
+query variable) and join the strings using a SPACE.</strong> 
+So the three "s" variables in the above URL: 
+<blockquote>
+	s="(|"
+
+	s="linux unix"
+
+	s=")"
+</blockquote>
+
+are joined with " " to create:
+
+<blockquote>(| linux unix )</blockquote>
+
+When this is fed into wql_parser, it will interpret the query as 'linux OR unix'.
+
+Question: So what if someone presses the search button without 
+entering any keywords?
+
+Answer: Nothing bad. wql_parser is written to get rid of meaningless 
+sub-queries. Just so long as you join the incoming "s" variables 
+using a SPACE, the parser will just reduce the query down to "".
+You can play with wql_parser at the shell to see what it might 
+do. Here's an extreme example:
+
+<pre>
+    1> wql_parser:parse("( ( (| (| ) ) ) (| ) (| ( (").
+    {ok,nil}
+    2> wql_parser:parse("( ( (| (| ) ) ) hello (| ) (| ( (").
+    {ok,"hello"}
+    3> wql_parser:parse("( ( (| (| ) ) ) hello (| ) (| ( world (").
+    {ok,{'AND',"hello","world"}}
+</pre>
+
+<hr/>
+
+We've covered the basic principles of how to use hidden input fields 
+to weave a query into a form. Let's finish up by taking a look at a more
+realistic example of how this technique can be used in practice.
+We'll create a basic search box for a movie information site
+(like you might find on 
+<a target="_top"
+   href="http://www.imdb.com/">IMDB</a> or the like):
+
+<pre>
+    &lt;form method="GET" action="http://www.example.com/movie-info"&gt;
+        &lt;label for="keyword-field"&gt;Search&lt;/label&gt;
+        &lt;select name="s"&gt;
+            &lt;option value="("&gt;All&lt;/option&gt;
+            &lt;option value="title:("&gt;Titles&lt;/option&gt;
+            &lt;option value="actor:("&gt;Actors&lt;/option&gt;
+            &lt;option value="director:("&gt;Directors&lt;/option&gt;
+            &lt;option value="quotes:("&gt;Quotes&lt;/option&gt;
+        &lt;/select&gt;
+        &lt;input name="s" type="text" id="keyword-field"/&gt;
+        &lt;input name="s" value=")" type="hidden"/&gt;
+        &lt;input value="Go" type="submit"/&gt;
+    &lt;/form&gt;
+</pre>
+
+<blockquote>
+    <form method="GET" action="http://www.example.com/movie-info">
+        <label for="keyword-field">Search</label>
+        <select name="s">
+            <option value="(">All</option>
+            <option value="title:(">Titles</option>
+            <option value="actor:(">Actors</option>
+            <option value="director:(">Directors</option>
+            <option value="quotes:(">Quotes</option>
+        </select>
+        <input name="s" type="text" id="keyword-field"/>
+        <input name="s" value=")" type="hidden"/>
+        <input value="Go" type="submit"/>
+    </form>
+</blockquote>
+
+For more examples, such as multi-choice checkboxes, etc, checkout
+the code to the 
+<a target="_top" href="https://yupp.ie/job/advanced-search-form">
+    Yupp.ie advanced search page</a>.
+
+
